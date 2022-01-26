@@ -10,15 +10,80 @@ struct
 
     type content = string
 
+    datatype contentType = 
+        PLAIN
+      | $$
+      | HH
+      | %%
+  fun pMtoString M = case M of
+      PLAIN => "PLAIN"
+      | $$ => "$$"
+      | HH => "HH"
+      | %% => "%%"
+  fun pMfromString s = case s of
+      "PLAIN" => PLAIN
+      | "$$" => $$
+      | "HH" => HH
+      | "%%" => %%
+      | _ => PLAIN (* TODO: Make error *)
+
+  fun pMfromBString bs = case bs of
+      "[PLAIN]" => PLAIN
+      | "[$$]" => $$
+      | "[HH]" => HH
+      | "[%%]" => %%
+      | _ => PLAIN (* TODO: Make error *)
+
+
+    val frontMeta = [$$,%%]
+    val backMeta = [HH]
+    val allMeta = frontMeta @ backMeta
+     
+
+    fun isMeta PLAIN = false
+      | isMeta _ = true
+
+    fun doFrontMeta F x = map (fn M => F M x) frontMeta
+    fun doBackMeta F x = map (fn M => F M x) backMeta
+    fun doAllMeta F x = map (fn M => F M x) allMeta
+
+    structure CTOrd : ORD =
+    struct
+      type t = contentType
+      fun cmp (PLAIN,PLAIN) = EQUAL
+        | cmp (PLAIN,_) = LESS
+        | cmp (_,PLAIN) = GREATER
+        | cmp (T1,T2) = if T1=T2 then EQUAL else
+            let
+              exception Term of order
+              fun check M () =
+                case (T1=M,T2=M) of
+                    (true,_) => raise Term LESS
+                  | (_,true) => raise Term GREATER
+                  | _ => ()
+            in
+                (doAllMeta check ();raise Fail "Tried to compare unknown contentTypes")
+                handle (Term O) => O
+            end
+    end
+
     datatype domAddress =
-          Content
-        | History
-        | Header
-        | Info
+          Every of contentType 
+
+    structure domAddOrd : ORD = 
+    struct
+       type t = domAddress
+        fun cmp (Every MM, Every NN) = CTOrd.cmp (MM,NN)
+    end
+    fun domAddToString (Every MM) = "(Every " ^ (pMtoString MM) ^ ")" 
+
+
+    structure DDict = MkDict(domAddOrd)
 
     datatype command = 
           SKIP
         | CLEAN
+        | NM
         | GET of domAddress
         | SET of domAddress * content
         | APPEND of domAddress * content
@@ -59,42 +124,21 @@ sig
 end =
 struct
 
+   
+
   (* TODO: Parametrize and store elsewhere, add utilities for extending *)
-    datatype processMode = 
-        NORMAL
-      | $$
-      | HH
-      | %%
-  fun pMtoString M = case M of
-      NORMAL => "NORMAL"
-      | $$ => "$$"
-      | HH => "HH"
-      | %% => "%%"
-  fun pMfromString s = case s of
-      "NORMAL" => NORMAL
-      | "$$" => $$
-      | "HH" => HH
-      | "%%" => %%
-      | _ => NORMAL (* TODO: Make error *)
-
-  fun pMfromBString bs = case bs of
-      "[NORMAL]" => NORMAL
-      | "[$$]" => $$
-      | "[HH]" => HH
-      | "[%%]" => %%
-      | _ => NORMAL (* TODO: Make error *)
-
+  datatype processMode = datatype contentType
 
   datatype linetype =
       Blank
     | Plaintext of string
-    | MetaBlock of processMode (* INVARIANT: not 'NORMAL' *)
+    | MetaBlock of processMode (* INVARIANT: not 'PLAIN' *)
     | MetaBlank
 
-  val Mode = ref NORMAL
+  val Mode = ref PLAIN
 
-  (* If !Mode is NORMAL, then flip MM sets Mode to MM.
-   *  If !Mode isnt NORMAL, then flip MM sets Mode to NORMAL *)
+  (* If !Mode is PLAIN, then flip MM sets Mode to MM.
+   *  If !Mode isnt PLAIN, then flip MM sets Mode to PLAIN *)
   val flipVerbose = ref false 
   fun flip MM =
     let
@@ -105,33 +149,53 @@ struct
               else ()
     in
       Mode := (case !Mode of 
-                NORMAL => MM
-              | _ => NORMAL) (* TODO: Add warning if !Mode<>MM *)
+                PLAIN => MM
+              | _ => PLAIN) (* TODO: Add warning if !Mode<>MM *)
     end
 
   structure GPF : 
   sig
+    type storedLine
     type gpf
-    val appendContent : gpf -> linetype -> gpf
-    val appendHead : gpf -> string*string list -> gpf
+    val appendContent : gpf -> storedLine -> gpf
+    val appendHead : contentType -> gpf -> storedLine -> gpf
     val Nothing : gpf
-    val getContent : gpf -> linetype list
-    val getHead : gpf -> (string * string list) list
+    val getContent : gpf -> storedLine list
+    val getMeta : contentType -> gpf -> storedLine list
   end
   = 
   struct
     
-    (* INVARIANT: content lines are stored in reverse order *)
-    type gpf = linetype list * (string * string list) list
+    type storedLine = string
+    
+    (* INVARIANT: storedLines are stored in reverse order *)
+    (* INVARIANT: raw content is listed in reverse order *)
+    type gpf = linetype list * storedLine list DDict.dict 
+
 
     (* Basic utility functions *)
 
     (* appendContent : gpf * linetype -> gpf *)
-    fun appendContent (G,H) foo = (foo :: G,H)
-    fun appendHead (G,H) foo = (G,foo::H)
-    val Nothing : gpf = ([],[])
-    fun getContent ((L,_):gpf):linetype list = List.rev L
-    fun getHead (_,H) = List.rev H
+    fun appendContent (L,DD) v' =
+         ((Plaintext v')::L,
+         DDict.updateCmb DD (Every PLAIN,v') op:: (fn l=>[l]))
+    fun appendHead MM (L,DD) v' =
+      let
+        val _ = (isMeta MM) orelse raise Fail "Not Meta"
+      in 
+         (L,
+         DDict.updateCmb DD (Every MM,v') op:: (fn l=>[l]))
+      end
+    fun logMeta MM (L,DD) = ((MetaBlock MM)::L,DD)
+
+    val Nothing : gpf = ([],DDict.empty)
+    fun getContent (_,DD) = List.rev (DDict.lookupDefault DD (Every PLAIN) [])
+    fun getMeta MM (_,DD) = 
+      let
+        val _ = (isMeta MM) orelse raise Fail "Not Meta"
+      in
+        List.rev (DDict.lookupDefault DD (Every MM) [])
+      end
 
   end
   open GPF
@@ -143,39 +207,40 @@ struct
        ls
     end)
     val unSpaceSplit = String.concatWith " "
+    val normalize = unSpaceSplit o pr2 o spaceSplit
 
-    (* process : (string * string list) -> gpf -> gpf *)
-
-    fun process (_,[]) acc = (case !Mode of NORMAL => appendContent acc Blank
-                                         | _ => appendContent acc MetaBlank)
+    fun process (_,[]) acc = (case !Mode of PLAIN => appendContent acc ""
+                                         | _ => (*TODO appendContent*) acc )
       | process (_, [MMBstr as ("[$$]"|"[HH]"|"[%%]")]) acc =
             let 
                val MM = pMfromBString MMBstr
                val _ = flip MM
             in
-             appendContent acc (MetaBlock MM)
+             acc (* TODO appendContent acc (MetaBlock MM) *)
             end
       | process (_,"[$$]"::rest) acc = (flip $$; 
                                         process
-                                          (unSpaceSplit rest,rest)
-                                          (appendContent acc (MetaBlock $$))
+                                          (unSpaceSplit rest,rest) acc
+                                          (* (appendContent acc (MetaBlock $$))
+                                          TODO: Change these to actually append
+                                          these linetype blocks to the raw log*)
                                        )
       | process (_,"[HH]"::rest) acc = (flip HH; 
                                         process
-                                          (unSpaceSplit rest,rest) 
-                                          (appendContent acc (MetaBlock HH))
+                                          (unSpaceSplit rest,rest) acc
+                                          (*appendContent acc (MetaBlock HH)*)
                                        )
       | process (_,"[%%]"::rest) acc = (flip %%; 
                                         process
-                                          (unSpaceSplit rest,rest) 
-                                          (appendContent acc (MetaBlock %%))
+                                          (unSpaceSplit rest,rest) acc
+                                          (*appendContent acc (MetaBlock %%)*)
                                        )
       | process (s,tokens as t0::rest) acc = 
             (case !Mode of
-                 NORMAL => appendContent acc (Plaintext s)
-              |  $$ => appendHead acc (t0,rest)
-              |  HH => process (s,rest) acc (* TODO: Make it actually store the info *)
-              |  %% => process (s,rest) acc (* TODO: Make it actually store the info *)
+                 PLAIN => appendContent acc s
+              |  $$ => appendHead $$ acc (normalize s)
+              |  HH => appendHead HH acc (normalize s)
+              |  %% => appendHead %% acc (normalize s)
               (*|  _ => Plaintext s :: acc*)
              )
     (* fun read () = List.rev(List.foldMapl (Fn.uncurry process) spaceSplit []
@@ -189,9 +254,7 @@ struct
 
   datatype printFun = JustContent | All | Debug
 
-  fun printCont pf =
-    let
-      fun echo Debug (Plaintext s) = print ("[TEXTLINE:"^s^"]")
+      (* fun echo Debug (Plaintext s) = print ("[TEXTLINE:"^s^"]")
         | echo _ (Plaintext s) = print(s^"\n")
 
         | echo Debug Blank = print("[BLANKLINE]") 
@@ -201,20 +264,24 @@ struct
         | echo _ MetaBlank = print("") 
 
         | echo Debug (MetaBlock M) = print("[META " ^ (pMtoString M) ^ "]") 
-        | echo _ (MetaBlock M) = ()
-    in
-      ignore o (map (echo pf)) o getContent
-    end
-  fun printHead G =
+        | echo _ (MetaBlock M) = () *)
+  val indent = "    "
+  fun echo doIndent s = print((if doIndent then indent else "") ^ s ^ "\n")
+  fun printCont pf = ignore o (map (echo false)) o getContent
+  fun printMeta pf MM G =
     let
-      val indent = "    "
-      fun echo (tok,cont) = 
-        print(indent ^ tok ^ " " ^ (String.concatWith " " cont) ^ "\n")
-      fun printSS _ = print "[$$]\n"
+      (*fun echo (tok,cont) = 
+        print(indent ^ tok ^ " " ^ (String.concatWith " " cont) ^ "\n")*)
+      fun printTag _ = print ("["^ (pMtoString  MM)^"]\n")
+
+      val metaContents = getMeta MM G
     in
-      (printSS o 
-      (fn _ => map echo (getHead G)) o 
-      printSS) ()
+      if List.null metaContents
+      then ()
+      else
+      (printTag(); 
+       map (echo true) metaContents;
+      printTag() ) 
     end
                             
 
@@ -224,8 +291,19 @@ struct
         let 
           val G = read()
         in
-          (printHead G;
-          printCont All G)
+          ignore(
+            doFrontMeta (printMeta All) G;
+            printCont All G;
+            doBackMeta (printMeta All) G
+          )
+        end
+    | perform NM = 
+        let 
+          val G = read()
+          (*val _ = print("KEYS:\n")
+          val _ = map (fn k => print((domAddToString k)^"\n")) (DDict.keys G)*)
+        in
+          printCont All G
         end
 end
 
