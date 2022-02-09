@@ -24,6 +24,7 @@ instance Show Tag where
 
 instance Read Tag where
     readsPrec _ "Meta" = [(Meta,"")]
+    readsPrec _ "meta" = [(Meta,"")]
     readsPrec _ "$$" = [(Meta,"")]
     readsPrec _ "HH" = [(History,"")]
     readsPrec _ "%%" = [(Info,"")]
@@ -32,7 +33,21 @@ instance Read Tag where
     readsPrec _ "TT" = [(Keywords,"")]
     readsPrec _ "BIBTEX" = [(BibTeX,"")]
     readsPrec _ "TODO" = [(ToDo,"")]
-    readsPrec _ t = error $ "Tag '" ++ t ++ "' not recognized."
+    readsPrec _ "history" = [(History,"")]
+    readsPrec _ "info" = [(Info,"")]
+    readsPrec _ "exhibits" = [(Exhibit,"")]
+    readsPrec _ "exhibit" = [(Exhibit,"")]
+    readsPrec _ "exh" = [(Exhibit,"")]
+    readsPrec _ "biblio" = [(Biblio,"")]
+    readsPrec _ "bib" = [(Biblio,"")]
+    readsPrec _ "keywords" = [(Keywords,"")]
+    readsPrec _ "tags" = [(Keywords,"")]
+    readsPrec _ "bibtex" = [(BibTeX,"")]
+    readsPrec _ "bibTeX" = [(BibTeX,"")]
+    readsPrec _ "BibTeX" = [(BibTeX,"")]
+    readsPrec _ "ToDo" = [(ToDo,"")]
+    readsPrec _ "todo" = [(ToDo,"")]
+    readsPrec _ t = error $ "[FAIL] Tag '" ++ t ++ "' not recognized."
 
 argOrPrompt :: Int -> String -> IO String
 argOrPrompt n message = do
@@ -47,27 +62,43 @@ argOrErr n argName = do
     if n < length args
         then return (args !! n)
         else error $
-            "Expected at least " ++ (show $ n+1) ++ " args -- no value for '" ++ argName ++ "'!"
+            "[FAIL] Expected at least " ++ (show $ n+1) ++ " args -- no value for '" ++ argName ++ "'!"
 
 data Command = SKIP
              | CHECK
              | GET { fileName :: String, tag :: Tag }
              | SET
 
+data Datatype = Plain String
+              | KVList [(String,String)]
+
+arentSpaces :: String -> Bool
+arentSpaces = (foldl (||) False) . (map (not . isSpace)) 
+
+kvListParser :: Parser [(String,String)]
+kvListParser = do
+    content <- consume
+    let contWords = map words $ filter arentSpaces $ lines content
+    return [(head l, unwords $ tail l) | l <- contWords] 
+
+getParser :: Tag -> Parser Datatype
+getParser Meta = fmap KVList $ extract1 ("[" ++ (show Meta) ++ "]") kvListParser
+getParser tt = fmap Plain $ extract1 ("[" ++ (show tt) ++ "]") consume
+
+
+indent :: String
+indent = "    "
+
 doCmd :: Command -> [String] -> IO ()
 doCmd SKIP _ = return ()
 doCmd CHECK l =  mapM putStrLn l >> putStrLn "Done!"
 doCmd (GET {fileName=fN, tag=tG}) l = do
     fileContents <- readFile fN
-    let parser = extract1 ("[" ++ (show tG) ++ "]") consume
-    let desired = runParser parser fileContents  
-    mapM_ print $ lines desired
---    putStrLn fN 
---    putStrLn (show tG) 
---    mapM putStrLn l
---    putStrLn "Done!"
-
-
+    let desired = runParser (getParser tG) fileContents  
+    case desired of 
+        [] -> putStrLn $ "[FAIL] " ++ fN ++ " has no entry for " ++ (show tG)
+        (Plain res:_) -> mapM_ putStrLn $ dropWhile (=="") (lines res)
+        (KVList res:_) -> mapM_ putStrLn $ map (\(key,value) -> indent ++ key ++ " " ++ value) res
 main = do
     cmd <- argOrErr 0 "cmd"
     args <- fmap tail getArgs

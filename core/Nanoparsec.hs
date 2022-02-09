@@ -15,8 +15,8 @@ selectCorrect l =
         [] -> error "Parser didn't consume whole string"
         ((a,_):_) -> a
 
-runParser :: Parser a -> String -> a
-runParser m s = selectCorrect $ parse m s
+runParser :: Parser a -> String -> [a]
+runParser m s =  map fst $ parse m s
 
 item :: Parser Char
 item = Parser $ \s ->
@@ -42,6 +42,11 @@ instance MonadPlus Parser where
     mzero = empty
     mplus p q = Parser $ \s -> parse p s ++ parse q s
 
+andThen :: Parser a -> Parser a -> (a -> a -> a) -> Parser a
+(p `andThen` q) cmb = do
+    m <- p
+    n <- q
+    return (cmb m n)
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy p = do
@@ -79,6 +84,24 @@ spaces = many $ oneOf " \n\t\r"
 
 nbspaces :: Parser String
 nbspaces = many $ oneOf " \t"
+
+breakSpace :: Parser String
+breakSpace = some (oneOf "\n\t\r") >> (oneOf "\n\r") >> some (oneOf "\n\t\r")
+
+alpha :: Parser Char
+alpha = oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+numerical :: Parser Char
+numerical = oneOf "0123456789"
+symbol :: Parser Char
+symbol = oneOf "`~!@#$%^&*-_=+[{]};:'\",<.>/?"
+alphanum :: Parser String
+alphanum = many (alpha <|> numerical)
+letterWord :: Parser String
+letterWord = many alpha
+validWord :: Parser String
+validWord = many (alpha <|> numerical <|> symbol)
+lineString :: Parser String
+lineString = validWord `chainl1` (nbspaces >> return (\ s1 s2 -> s1 ++ " " ++ s2))
 
 token :: Parser a -> Parser a
 token p = do { a <- p; spaces; return a }
