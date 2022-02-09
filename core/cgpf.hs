@@ -2,6 +2,7 @@ import System.Environment
 import Control.Monad  
 import Data.Char  
 import Text.Read
+import Nanoparsec
 
 --data ContentType = ContentHH | ContentSS | ContentPP deriving (Eq)
 --instance Show ContentType where
@@ -33,11 +34,6 @@ instance Read Tag where
     readsPrec _ "TODO" = [(ToDo,"")]
     readsPrec _ t = error $ "Tag '" ++ t ++ "' not recognized."
 
-data Command = SKIP
-             | CHECK
-             | GET { fileName :: String, tag :: Tag }
-             | SET
-
 argOrPrompt :: Int -> String -> IO String
 argOrPrompt n message = do
     args <- getArgs
@@ -53,15 +49,23 @@ argOrErr n argName = do
         else error $
             "Expected at least " ++ (show $ n+1) ++ " args -- no value for '" ++ argName ++ "'!"
 
+data Command = SKIP
+             | CHECK
+             | GET { fileName :: String, tag :: Tag }
+             | SET
 
 doCmd :: Command -> [String] -> IO ()
 doCmd SKIP _ = return ()
 doCmd CHECK l =  mapM putStrLn l >> putStrLn "Done!"
 doCmd (GET {fileName=fN, tag=tG}) l = do
-    putStrLn fN 
-    putStrLn (show tG) 
-    mapM putStrLn l
-    putStrLn "Done!"
+    fileContents <- readFile fN
+    let parser = extract1 ("[" ++ (show tG) ++ "]") consume
+    let desired = runParser parser fileContents  
+    mapM_ print $ lines desired
+--    putStrLn fN 
+--    putStrLn (show tG) 
+--    mapM putStrLn l
+--    putStrLn "Done!"
 
 
 main = do
