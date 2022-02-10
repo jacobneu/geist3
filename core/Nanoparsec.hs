@@ -84,10 +84,6 @@ spaces = many $ oneOf " \n\t\r"
 
 nbspaces :: Parser String
 nbspaces = many $ oneOf " \t"
-
-breakSpace :: Parser String
-breakSpace = some (oneOf "\n\t\r") >> (oneOf "\n\r") >> some (oneOf "\n\t\r")
-
 alpha :: Parser Char
 alpha = oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 numerical :: Parser Char
@@ -105,6 +101,16 @@ lineString = validWord `chainl1` (nbspaces >> return (\ s1 s2 -> s1 ++ " " ++ s2
 
 token :: Parser a -> Parser a
 token p = do { a <- p; spaces; return a }
+pre :: Parser a -> Parser a
+pre p = spaces >> p
+
+countSpaces :: Parser Int
+countSpaces = do
+    indentation <- nbspaces
+    return (length indentation)
+
+breakSpace :: Parser String
+breakSpace = many $ pre(oneOf "\n\r")
 
 string :: String -> Parser String
 string "" = return ""
