@@ -139,9 +139,12 @@ parens = delimited2 "(" ")"
 splits :: [a] -> [([a],[a])]
 splits [] = [([],[])]
 splits (c:cs) = ([],c:cs) : [(c:hd,tl) | (hd,tl) <- splits cs]
+splitsNE :: [a] -> [([a],[a])]
+splitsNE = (filter (not . null . fst)) . splits
+
 
 consume :: Parser String
-consume = Parser splits
+consume = Parser splitsNE
 
 ignoreUntilDelim :: String -> Parser a -> Parser a
 ignoreUntilDelim tag p = do

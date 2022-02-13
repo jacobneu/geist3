@@ -34,7 +34,7 @@ doCmd SKIP _ = return ()
 doCmd CHECK l =  mapM putStrLn l >> putStrLn "Done!"
 doCmd (GET {fileName=fN, tag=tG}) l = do
     fileContents <- readFile fN
-    let desired = runParser (getParser tG) fileContents  
+    let desired = runParser (getExParser tG) fileContents  
     case desired of 
         [] -> return () -- putStrLn $ "[FAIL] " ++ fN ++ " has no entry for " ++ (show tG)
         (Plain res:_) -> mapM_ putStrLn $ dropWhile (=="") (lines res)
