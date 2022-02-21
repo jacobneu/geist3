@@ -24,10 +24,8 @@ data Command = SKIP
              | CHECK
              | GET { fileName :: String, tag :: Tag }
              | SET
+             | LOAD { fileName :: String }
 
-
-indent :: String
-indent = "    "
 
 doCmd :: Command -> [String] -> IO ()
 doCmd SKIP _ = return ()
@@ -37,10 +35,13 @@ doCmd (GET {fileName=fN, tag=tG}) l = do
     let desired = runParser (getExParser tG) fileContents  
     case desired of 
         [] -> return () -- putStrLn $ "[FAIL] " ++ fN ++ " has no entry for " ++ (show tG)
-        (Plain res:_) -> mapM_ putStrLn $ dropWhile (=="") (lines res)
-        (KVList res:_) -> mapM_ putStrLn $ map (\(key,value) -> indent ++ key ++ " " ++ value) res
-        (BulletPoints res:_) -> mapM_ putStrLn [(replicate n ' ') ++ (annShow ann) ++ " " ++ rest | (n,ann,rest) <- res]
-        (StList res:_) -> mapM_ (putStrLn . show) res 
+        (e:_) -> mapM_ putStrLn (mkStrList e)
+doCmd (LOAD {fileName=fN}) l = do
+    fileContents <- readFile fN
+    case runParser documentParser fileContents  of
+        [] -> return ()
+        (d:_) -> mapM_ putStrLn (repr d)
+    
 main = do
     cmd <- argOrErr 0 "cmd"
     args <- fmap tail getArgs
@@ -51,4 +52,7 @@ main = do
                     in_fileName <- argOrErr 1 "fileName"
                     in_tag <- fmap read $ argOrErr 2 "tag"
                     doCmd (GET in_fileName in_tag) (drop 2 args)
+        "load" -> do
+                    in_fileName <- argOrErr 1 "fileName"
+                    doCmd (LOAD in_fileName) (drop 1 args)
         _ -> error $ "Command '" ++ cmd ++ "' not recognized."

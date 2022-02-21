@@ -9,6 +9,13 @@ import Nanoparsec
 import qualified Data.Map as Map
 
 data Tag = Main | Meta | History | Info | Exhibit | Biblio | Keywords | BibTeX | ToDo deriving (Eq,Ord)
+headTags :: [Tag]
+headTags = [Meta,Info,Biblio,Keywords,BibTeX]
+tailTags :: [Tag]
+tailTags = [Exhibit,ToDo,History]
+notMain :: [Tag]
+notMain = headTags ++ tailTags
+
 instance Show Tag where
     show Main = ""
     show Meta = "$$"
@@ -24,6 +31,8 @@ instance Read Tag where
     readsPrec _ "Meta" = [(Meta,"")]
     readsPrec _ "meta" = [(Meta,"")]
     readsPrec _ "." = [(Main,"")]
+    readsPrec _ "main" = [(Main,"")]
+    readsPrec _ "Main" = [(Main,"")]
     readsPrec _ "$$" = [(Meta,"")]
     readsPrec _ "HH" = [(History,"")]
     readsPrec _ "%%" = [(Info,"")]
@@ -64,8 +73,26 @@ data ContentType = Plain String
               | StList [String]
               | BulletPoints [(Int,Maybe String,String)]
 
+indent :: String
+indent = "    " 
+
+
+debugMode :: Bool
+debugMode = False
+
+mkStrList :: ContentType -> [String]
+mkStrList c = case c of
+    (Plain res) -> dropWhile (=="") (lines res)
+    (KVList res) -> map (\(key,value) -> indent ++ key ++ " " ++ value) res
+    (BulletPoints res) -> [(replicate n ' ') ++ "-" ++ (annShow ann) ++ " " ++ rest | (n,ann,rest) <- res]
+    (StList res) -> res 
+
 contentAppend :: ContentType -> ContentType -> ContentType
-contentAppend (Plain s) (Plain s') = Plain (s ++ s')
+contentAppend ss (Plain []) = ss
+contentAppend (Plain s) (Plain s') = 
+    case (last s',s) of
+        ('\n','\n':rest) -> contentAppend (Plain s') (Plain rest)
+        _ -> Plain(s' ++ s)
 
 {- KVList parser -}
 arentSpaces :: String -> Bool
@@ -100,12 +127,30 @@ annShow (Just s) = "[" ++ s ++ "]"
 {- DOM -}
 type Dom = Map.Map Tag ContentType
 
+mkRepr :: Dom -> Tag -> [String]
+mkRepr d Main =  case (Map.lookup Main d) of
+    (Just e) -> mkStrList e
+    Nothing -> []
+mkRepr d tag = case (Map.lookup tag d) of
+    (Just e) -> (("[" ++ (show tag) ++ "]") : 
+        if debugMode 
+        then (map (((show tag) ++ ">>") ++) (mkStrList e))
+        else (mkStrList e)) 
+        ++ ["[" ++ (show tag) ++ "]"]
+    Nothing -> []
+
+repr :: Dom -> [String]
+repr d = concat $ filter (not . null) $ 
+    (map (mkRepr d) headTags) ++ [mkRepr d Main] ++ (map (mkRepr d) tailTags)
+
+{- DOM parsing -}
 getParser :: Tag -> Parser ContentType
 getParser tag = 
     case (getContentType tag) of
         TagPlain -> fmap Plain $ delimited ("[" ++ (show tag) ++ "]") consume
         TagKVList -> fmap KVList $ delimited ("[" ++ (show tag) ++ "]") kvListParser
         TagBulletPoints -> fmap BulletPoints $ delimited ("[" ++ (show tag) ++ "]") (bulletParser consume)
+
 
 docParser :: Tag -> Parser (Dom -> Dom)
 docParser Main = do
@@ -115,47 +160,11 @@ docParser tag = do
     entry <- getParser tag
     return $ \startDict -> Map.insertWith contentAppend tag entry startDict
 
-emptyConsumption :: Parser (Dom -> Dom)
-emptyConsumption = do { consume; return $ \d -> d }
-
-
-
--- stepDocumentParser :: Parser (Dom -> Dom) 
--- stepDocumentParser = (docParser Meta)<|>(docParser History)<|>(docParser Main)
-
-headDocParser :: Parser (Dom -> Dom)
-headDocParser = chainl ((docParser Meta)<|>(docParser Info)) (spaces >> return (>>>)) (\s -> s)
---footDocParser :: Parser (Dom -> Dom)
---footDocParser = chainl ((docParser History)<|>(docParser Info)) (spaces >> return (>>>)) (\s -> s)
-
-
-{- do
-    startDict <- init
-    content <- consume
-    return $ Map.insertWith contentAppend Main (Plain content) startDict -}
 documentParser :: Parser Dom
 documentParser = do
-    header <- headDocParser
-    cont <- docParser Main
-    hist <- (docParser History) <|> (return $ \s -> s)
-    return $ hist(cont(header(Map.empty)))     -- foldl (flip ($)) Map.empty stepsList
-
---(stepDocumentParser `chainl1` (token(return (>>>)))) <*> (return Map.empty)
-
-
-{- Extraction parsers -}
-
-bulletExParser :: Tag -> Parser String -> Parser ContentType
-bulletExParser tag p = fmap BulletPoints $ extract1 ("[" ++ (show tag) ++ "]") $ bulletParser p
-
-kvListExParser :: Tag -> Parser ContentType
-kvListExParser tag = fmap KVList $ extract1 ("[" ++ (show tag) ++ "]") kvListParser 
+    addContents <- chainl1 (foldl1 (<|>) (map docParser (notMain++[Main]))) (return (>>>)) 
+    return $ addContents(Map.empty)
 
 getExParser :: Tag -> Parser ContentType
-getExParser tag = fmap (Map.findWithDefault (Plain "ggg") tag) $ documentParser
-{-getExParser tag = 
-    case (getContentType tag) of
-        TagPlain -> fmap Plain $ extract1 ("[" ++ (show tag) ++ "]") consume
-        TagKVList -> kvListExParser tag
-        TagBulletPoints -> bulletExParser tag consume
--}
+getExParser tag = fmap (Map.findWithDefault (Plain "") tag) documentParser
+
