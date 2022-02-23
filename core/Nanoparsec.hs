@@ -16,7 +16,7 @@ selectCorrect l =
         ((a,_):_) -> a
 
 runParser :: Parser a -> String -> [a]
-runParser m s =  map fst $ parse m s
+runParser m s =  map fst $ filter (null . snd) $ parse m s
 
 item :: Parser Char
 item = Parser $ \s ->
@@ -103,6 +103,16 @@ token :: Parser a -> Parser a
 token p = do { a <- p; spaces; return a }
 pre :: Parser a -> Parser a
 pre p = spaces >> p
+perhaps :: Parser String -> Parser String
+perhaps p = p <|> (return "")
+
+
+nMany :: Parser Char -> Int -> Parser String
+nMany p 0 = return ""
+nMany p n = do
+    c <- p
+    rest <- nMany p (n-1)
+    return (c:rest)
 
 countSpaces :: Parser Int
 countSpaces = do

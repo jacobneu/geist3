@@ -5,8 +5,11 @@ import Control.Applicative
 import Control.Arrow
 import Data.Char  
 import Text.Read
+import Text.Printf
 import Nanoparsec
 import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map.Strict
+import GTime
 
 data Tag = Main | Meta | History | Info | Exhibit | Biblio | Keywords | BibTeX | ToDo deriving (Eq,Ord)
 headTags :: [Tag]
@@ -57,6 +60,15 @@ instance Read Tag where
     readsPrec _ "todo" = [(ToDo,"")]
     readsPrec _ t = error $ "[FAIL] Tag '" ++ t ++ "' not recognized."
 
+data DataType = Text String
+            | Date GDate
+            | Time GTime
+            | DateTime GDateTime
+
+dataParser :: Parser DataType
+dataParser = (fmap Date dateParser) <|> (fmap Time timeParser) <|> (fmap Text consume)
+
+
 data ContentTypeName = TagPlain | TagKVList | TagBulletPoints
 
 getContentType :: Tag -> ContentTypeName
@@ -71,7 +83,7 @@ getContentType tag =
 data ContentType = Plain String
               | KVList [(String,String)]
               | StList [String]
-              | BulletPoints [(Int,Maybe String,String)]
+              | BulletPoints [(Int,Maybe DataType,String)]
 
 indent :: String
 indent = "    " 
@@ -93,6 +105,8 @@ contentAppend (Plain s) (Plain s') =
     case (last s',s) of
         ('\n','\n':rest) -> contentAppend (Plain s') (Plain rest)
         _ -> Plain(s' ++ s)
+contentAppend (BulletPoints new) (BulletPoints existing) =
+    BulletPoints (existing ++ new)
 
 {- KVList parser -}
 arentSpaces :: String -> Bool
@@ -106,22 +120,27 @@ kvListParser = do
 
 
 {- BulletPoints parser -}
-bulletParser :: Parser String -> Parser [(Int,Maybe String,String)]
-bulletParser p = 
-    chainl1 bulletLine (char '\n' >> return (++))
-    where
-        bulletLine = (do
-            indentation <- countSpaces
-            string "-"
-            annotation <- (fmap Just $ token(delimited2 "[" "]" p)) <|> (char ' ' >> return Nothing)
-            rest <- consume
-            return [(indentation,annotation,rest)])
-            <|> (nbspaces >> return [])
+bulletLine :: Parser DataType -> Parser [(Int,Maybe DataType,String)]
+bulletLine p = (do
+    indentation <- countSpaces
+    string "-"
+    annotation <- (fmap Just $ token(delimited2 "[" "]" p)) <|> (char ' ' >> return Nothing)
+    rest <- consume
+    return [(indentation,annotation,rest)])
+    <|> (nbspaces >> return [])
 
-{- Helpers -}
-annShow :: Maybe String -> String
+bulletParser :: Parser DataType -> Parser [(Int,Maybe DataType,String)]
+bulletParser p = 
+    chainl1 (bulletLine p) (char '\n' >> return (++))
+
+{- BulletPoints annotations -}
+annShow :: Maybe DataType -> String
 annShow Nothing = ""
-annShow (Just s) = "[" ++ s ++ "]"
+annShow (Just (Text s)) = "[" ++ s ++ "]"
+annShow (Just (Date (GDate yy mm dd))) = 
+    "[" ++ (printf "%04d" yy) ++ (printf "%02d" mm) ++ (printf "%02d" dd) ++ "]"
+annShow (Just (Time (GTime hh mm))) = 
+    "[" ++ (printf "%02d" hh) ++ ":" ++ (printf "%02d" mm) ++ "]"
 
 
 {- DOM -}
@@ -143,13 +162,30 @@ repr :: Dom -> [String]
 repr d = concat $ filter (not . null) $ 
     (map (mkRepr d) headTags) ++ [mkRepr d Main] ++ (map (mkRepr d) tailTags)
 
+docAppend :: Dom -> Tag -> [String] -> Maybe Dom
+docAppend d tag [] = Just d
+docAppend d tag ("":rest) = docAppend d tag rest
+docAppend d tag (l:ls) = 
+    case getContentType tag of
+        TagPlain -> Just $ Map.insertWith contentAppend tag (Plain (unlines (l:ls))) d
+        TagBulletPoints -> 
+            let content = case (runParser (bulletLine dataParser) l) of
+                    [] -> Nothing
+                    (e:_) -> Just e
+            in do
+                con <- content
+                let appended = Map.Strict.insertWith contentAppend tag (BulletPoints con) d
+                docAppend appended tag ls
+
+
+
 {- DOM parsing -}
 getParser :: Tag -> Parser ContentType
 getParser tag = 
     case (getContentType tag) of
         TagPlain -> fmap Plain $ delimited ("[" ++ (show tag) ++ "]") consume
         TagKVList -> fmap KVList $ delimited ("[" ++ (show tag) ++ "]") kvListParser
-        TagBulletPoints -> fmap BulletPoints $ delimited ("[" ++ (show tag) ++ "]") (bulletParser consume)
+        TagBulletPoints -> fmap BulletPoints $ delimited ("[" ++ (show tag) ++ "]") (bulletParser dataParser)
 
 
 docParser :: Tag -> Parser (Dom -> Dom)
