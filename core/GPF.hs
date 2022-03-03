@@ -11,9 +11,9 @@ import qualified Data.Map as Map
 import qualified Data.Map.Strict as Map.Strict
 import GTime
 
-data Tag = Main | Meta | History | Info | Exhibit | Biblio | Keywords | BibTeX | ToDo deriving (Eq,Ord)
+data Tag = Main | Meta | History | Info | Exhibit | Biblio | Keywords | BibTeX | ToDo | Abstract deriving (Eq,Ord)
 headTags :: [Tag]
-headTags = [Meta,Info,Biblio,Keywords,BibTeX]
+headTags = [Meta,Info,Biblio,Keywords,BibTeX,Abstract]
 tailTags :: [Tag]
 tailTags = [Exhibit,ToDo,History]
 notMain :: [Tag]
@@ -29,6 +29,7 @@ instance Show Tag where
     show Keywords = "TT"
     show BibTeX = "BIBTEX"
     show ToDo = "TODO"
+    show Abstract = "ABSTRACT"
 
 instance Read Tag where
     readsPrec _ "Meta" = [(Meta,"")]
@@ -43,6 +44,9 @@ instance Read Tag where
     readsPrec _ "BB" = [(Biblio,"")]
     readsPrec _ "TT" = [(Keywords,"")]
     readsPrec _ "BIBTEX" = [(BibTeX,"")]
+    readsPrec _ "ABSTRACT" = [(Abstract,"")]
+    readsPrec _ "Abstract" = [(Abstract,"")]
+    readsPrec _ "abstract" = [(Abstract,"")]
     readsPrec _ "TODO" = [(ToDo,"")]
     readsPrec _ "history" = [(History,"")]
     readsPrec _ "info" = [(Info,"")]
@@ -107,6 +111,8 @@ contentAppend (Plain s) (Plain s') =
         _ -> Plain(s' ++ s)
 contentAppend (BulletPoints new) (BulletPoints existing) =
     BulletPoints (existing ++ new)
+contentAppend (KVList new) (KVList existing) =
+    KVList (existing ++ new)
 
 {- KVList parser -}
 arentSpaces :: String -> Bool
@@ -176,7 +182,13 @@ docAppend d tag (l:ls) =
                 con <- content
                 let appended = Map.Strict.insertWith contentAppend tag (BulletPoints con) d
                 docAppend appended tag ls
-
+        TagKVList -> do
+            con <- case words l of
+                                [] -> Nothing
+                                (x:xs) -> Just(x,unwords xs)
+            let appended = Map.Strict.insertWith contentAppend tag (KVList [con]) d
+            docAppend appended tag ls
+            
 
 
 {- DOM parsing -}

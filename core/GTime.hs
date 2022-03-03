@@ -4,6 +4,7 @@ import Data.Time.Clock
 import Data.Time.Calendar
 import Data.Time.LocalTime
 import Nanoparsec
+import Text.Printf
 import Control.Applicative
 import Control.Monad
 
@@ -50,6 +51,27 @@ dayParser max =
 dSeparator :: Parser String
 dSeparator = (string " ")<|>(string "-")
 
+eightDigit :: GDate -> String
+eightDigit (GDate {year=yy, month=mm, day=dd}) =
+    (printf "%04d" yy)++(printf "%02d" mm)++(printf "%02d" dd)
+
+monthName :: Int -> String
+monthName n = case n of
+    1 -> "January"
+    2 -> "February"
+    3 -> "March"
+    4 -> "April"
+    5 -> "May"
+    6 -> "June"
+    7 -> "July"
+    8 -> "August"
+    9 -> "September"
+    10 -> "October"
+    11 -> "November"
+    12 -> "December"
+
+niceFormat :: GDate -> String
+niceFormat (GDate {year=yy, month=mm, day=dd}) = (printf "%02d" dd)++" "++(monthName mm)++" "++(printf "%04d" yy)
 
 dateParser :: Parser GDate
 dateParser = 
@@ -65,6 +87,9 @@ dateParser =
         
 
 data GTime = GTime {hour :: Int, minute :: Int}
+
+instance Show GTime where
+    show (GTime {hour=hh, minute=mm}) = (show hh)++":"++(show mm)
 
 tSeparator :: Parser String
 tSeparator = (string " ")<|>(string ":")
@@ -108,7 +133,11 @@ getTime = do
     z <- getCurrentTimeZone
     let (TimeOfDay hour minute _) = localTimeOfDay $ utcToLocalTime z t
     return $ GTime hour minute
-  
+
+archSubDirect :: IO String
+archSubDirect = do
+    GDate yy mm _ <- getDate
+    return $ (printf "%04d" yy) ++ "-" ++ (printf "%02d" mm)
 {-
 main = do
     (year,month,day) <- getDate
@@ -116,3 +145,8 @@ main = do
     putStrLn $ show (year,month,day,hour,minute)
 -}
 
+
+statPlusT :: GTime -> GTime
+statPlusT (GTime  hh mm) = GTime (hh+24) mm 
+statPlusD :: GDate -> GDate
+statPlusD (GDate yy mm dd) = GDate yy mm (dd-1)
