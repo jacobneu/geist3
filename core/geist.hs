@@ -10,7 +10,7 @@ import GPF
 import qualified Data.Map as Map
 
 gDOCTREE :: String
-gDOCTREE = "/home/jacobneu/doctree3/"
+gDOCTREE = "/home/jacobneu/doctree/"
 
 gARCHIVE :: String
 gARCHIVE = "/home/jacobneu/archive3/"

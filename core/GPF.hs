@@ -157,11 +157,11 @@ mkRepr d Main =  case (Map.lookup Main d) of
     (Just e) -> mkStrList e
     Nothing -> []
 mkRepr d tag = case (Map.lookup tag d) of
-    (Just e) -> (("[" ++ (show tag) ++ "]") : 
+    (Just e) -> (("[[" ++ (show tag) ++ "]]") : 
         if debugMode 
         then (map (((show tag) ++ ">>") ++) (mkStrList e))
         else (mkStrList e)) 
-        ++ ["[" ++ (show tag) ++ "]"]
+        ++ ["[[" ++ (show tag) ++ "]]"]
     Nothing -> []
 
 repr :: Dom -> [String]
